@@ -32,20 +32,24 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
 
     enum StateMachine {
         WAITING_FOR_START,
-        AT_TARGET,
-        Y_SLIDER_UP,
+        CLOSE_CLAW,
         DRIVE_TO_TARGET_1,
+        SLIDER_UP,
         DRIVE_TO_TARGET_2,
+        SLIDER_DOWN,
+        OPEN_CLAW,
         DRIVE_TO_TARGET_3,
         DRIVE_TO_TARGET_4,
-        DRIVE_TO_TARGET_5
+        DRIVE_TO_TARGET_5,
+        AT_TARGET
     }
 
-    static final Pose2D TARGET_1 = new Pose2D(DistanceUnit.MM,2000,20,AngleUnit.DEGREES,0);
-    static final Pose2D TARGET_2 = new Pose2D(DistanceUnit.MM, 2600, -20, AngleUnit.DEGREES, -90);
-    static final Pose2D TARGET_3 = new Pose2D(DistanceUnit.MM,2600,-2600, AngleUnit.DEGREES,-90);
-    static final Pose2D TARGET_4 = new Pose2D(DistanceUnit.MM, 100, -2600, AngleUnit.DEGREES, 90);
+    static final Pose2D TARGET_1 = new Pose2D(DistanceUnit.MM,-800,0,AngleUnit.DEGREES,0);
+    static final Pose2D TARGET_2 = new Pose2D(DistanceUnit.MM, -50, 0, AngleUnit.DEGREES, 0);
+    static final Pose2D TARGET_3 = new Pose2D(DistanceUnit.MM,150,0, AngleUnit.DEGREES,0);
+    static final Pose2D TARGET_4 = new Pose2D(DistanceUnit.MM, 100, -2600, AngleUnit.DEGREES, -180);
     static final Pose2D TARGET_5 = new Pose2D(DistanceUnit.MM, 100, 0, AngleUnit.DEGREES, 0);
+
 
 
     @Override
@@ -58,7 +62,6 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         rightFrontDrive = hardwareMap.get(DcMotor.class, "right_front");
         leftBackDrive   = hardwareMap.get(DcMotor.class, "left_back");
         rightBackDrive  = hardwareMap.get(DcMotor.class, "right_back");
-
         ySliderMotor = hardwareMap.get(DcMotor.class, "y_slider_motor");
         clawServo = hardwareMap.get(Servo.class, "Claw");
 
@@ -99,13 +102,22 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         resetRuntime();
 
         while (opModeIsActive()) {
-            odo.update();
+            odo.update(); // update odometry position
 
             switch (stateMachine){
                 case WAITING_FOR_START:
-                    //the first step in the autonomous
+                    //Drive to subversive
                     stateMachine = StateMachine.DRIVE_TO_TARGET_1;
                     break;
+
+                case CLOSE_CLAW:
+                    clawServo.setPosition(0.1); // Close the claw slightly
+                    telemetry.addLine("Claw closed slightly to hold specimen.");
+                    telemetry.update();
+                    sleep(500);
+                    stateMachine = StateMachine.DRIVE_TO_TARGET_1;
+                    break;
+
                 case DRIVE_TO_TARGET_1:
                     /*
                     drive the robot to the first target, the nav.driveTo function will return true once
@@ -114,16 +126,40 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
                      */
                     if (nav.driveTo(odo.getPosition(), TARGET_1, 0.7, 0)){
                         telemetry.addLine("at position #1!");
-                        stateMachine = StateMachine.DRIVE_TO_TARGET_2;
+                        telemetry.update();
+                        stateMachine = StateMachine.SLIDER_UP;
                     }
                     break;
+                case SLIDER_UP:
+                    moveSlider(150, 0.5, 2000); // Move the slider up by 150 mm
+                    telemetry.addLine("Slider moved up 150mm.");
+                    telemetry.update();
+                    stateMachine = StateMachine.DRIVE_TO_TARGET_2;
+                    break;
+
                 case DRIVE_TO_TARGET_2:
                     //drive to the second target
                     if (nav.driveTo(odo.getPosition(), TARGET_2, 0.7, 1)){
                         telemetry.addLine("at position #2!");
-                        stateMachine = StateMachine.DRIVE_TO_TARGET_3;
+                        stateMachine = StateMachine.SLIDER_DOWN;
                     }
                     break;
+
+                case SLIDER_DOWN:
+                    moveSlider(-50, 0.5, 2000); // Move the slider down by 50 mm
+                    telemetry.addLine("Slider moved down 50mm.");
+                    telemetry.update();
+                    stateMachine = StateMachine.OPEN_CLAW;
+                    break;
+
+                case OPEN_CLAW:
+                    clawServo.setPosition(0.8); // Open the claw to release the specimen
+                    telemetry.addLine("Claw opened to release specimen.");
+                    telemetry.update();
+                    sleep(500);
+                    stateMachine = StateMachine.DRIVE_TO_TARGET_3;
+                    break;
+
                 case DRIVE_TO_TARGET_3:
                     if(nav.driveTo(odo.getPosition(), TARGET_3, 0.7, 3)){
                         telemetry.addLine("at position #3");
@@ -142,8 +178,12 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
                         stateMachine = StateMachine.AT_TARGET;
                     }
                     break;
-            }
 
+                case AT_TARGET:
+                    telemetry.addLine("All tasks completed!");
+                    telemetry.update();
+                    break;
+            }
 
             //nav calculates the power to set to each motor in a mecanum or tank drive. Use nav.getMotorPower to find that value.
             leftFrontDrive.setPower(nav.getMotorPower(DriveToPoint.DriveMotor.LEFT_FRONT));
@@ -151,13 +191,25 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
             leftBackDrive.setPower(nav.getMotorPower(DriveToPoint.DriveMotor.LEFT_BACK));
             rightBackDrive.setPower(nav.getMotorPower(DriveToPoint.DriveMotor.RIGHT_BACK));
 
-            telemetry.addData("current state:",stateMachine);
-
             Pose2D pos = odo.getPosition();
-            String data = String.format(Locale.US, "{X: %.3f, Y: %.3f, H: %.3f}", pos.getX(DistanceUnit.MM), pos.getY(DistanceUnit.MM), pos.getHeading(AngleUnit.DEGREES));
-            telemetry.addData("Position", data);
-
+            telemetry.addData("Position", String.format(Locale.US, "{X: %.3f, Y: %.3f, H: %.3f}",
+                    pos.getX(DistanceUnit.MM), pos.getY(DistanceUnit.MM), pos.getHeading(AngleUnit.DEGREES)));
+            telemetry.addData("State", stateMachine);
             telemetry.update();
-
         }
-    }}
+    }
+
+    private void moveSlider(int distance, double power, long timeoutMs) {
+        ySliderMotor.setTargetPosition(distance);
+        ySliderMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        ySliderMotor.setPower(power);
+
+        long startTime = System.currentTimeMillis();
+        while (ySliderMotor.isBusy() && opModeIsActive() && (System.currentTimeMillis() - startTime < timeoutMs)) {
+            telemetry.addData("Slider", "Moving to position: %d", distance);
+            telemetry.update();
+        }
+        ySliderMotor.setPower(0);
+        ySliderMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    }
+}
