@@ -109,8 +109,7 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
                     break;
 
                 case SLIDER_DOWN_AND_OPEN_CLAW:
-                    moveSliderAndOpenClaw(-30); // Move slider down and open claw simultaneously
-                    sleep(2000); // Wait for placement to finish
+                    moveSliderAndOpenClaw(-30); // Simultaneous slider movement and claw opening
                     stateMachine = StateMachine.DRIVE_TO_TARGET_3;
                     break;
 
@@ -180,14 +179,21 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
     }
 
     private void moveSliderAndOpenClaw(int mm) {
-        int ticks = (int) (mm * 10); // Example conversion factor
-        ySliderMotor.setTargetPosition(ySliderMotor.getCurrentPosition() + ticks);
+        int ticks = (int) (mm * 10); // Convert mm to encoder ticks
+        int targetPosition = ySliderMotor.getCurrentPosition() + ticks;
+
+        ySliderMotor.setTargetPosition(targetPosition);
         ySliderMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         ySliderMotor.setPower(0.5); // Adjust power for smooth motion
-        clawServo.setPosition(0); // Open claw while moving slider down
+
+        // Gradually open the claw as the slider moves down
         while (ySliderMotor.isBusy() && opModeIsActive()) {
-            // Wait for slider to move down
+            double sliderProgress = (double) (targetPosition - ySliderMotor.getCurrentPosition()) / ticks;
+            clawServo.setPosition(0.5 - (0.5 * sliderProgress)); // Adjust claw position based on slider progress
         }
+
         ySliderMotor.setPower(0);
+        clawServo.setPosition(0); // Ensure the claw is fully open at the end
     }
 }
+
