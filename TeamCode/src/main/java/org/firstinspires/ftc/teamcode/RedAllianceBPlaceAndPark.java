@@ -66,6 +66,8 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
 
         StateMachine stateMachine = StateMachine.WAITING_FOR_START;
 
+        long lastTelemetryUpdate = System.nanoTime();
+
         telemetry.addData("Status", "Initialized");
         telemetry.update();
 
@@ -74,6 +76,9 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         resetRuntime();
 
         while (opModeIsActive()) {
+            long loopStartTime = System.nanoTime();
+
+            // High-priority odometry update
             odo.update();
 
             switch (stateMachine) {
@@ -91,7 +96,6 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
 
                 case DRIVE_TO_TARGET_1:
                     if (smoothDriveTo(TARGET_1, 0.5)) {
-                        telemetry.addLine("At position #1");
                         stateMachine = StateMachine.SLIDER_UP;
                     }
                     break;
@@ -103,7 +107,6 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
 
                 case DRIVE_TO_TARGET_2:
                     if (smoothDriveTo(TARGET_2, 0.4)) {
-                        telemetry.addLine("At position #2");
                         stateMachine = StateMachine.SLIDER_DOWN_AND_OPEN_CLAW;
                     }
                     break;
@@ -115,24 +118,32 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
 
                 case DRIVE_TO_TARGET_3:
                     if (smoothDriveTo(TARGET_3, 0.5)) {
-                        telemetry.addLine("At position #3");
                         stateMachine = StateMachine.AT_TARGET;
                     }
                     break;
 
                 case AT_TARGET:
-                    telemetry.addLine("Autonomous Complete!");
                     break;
 
                 default:
                     telemetry.addLine("Unknown State");
             }
 
-            // Telemetry
-            Pose2D pos = odo.getPosition();
-            telemetry.addData("State", stateMachine);
-            telemetry.addData("Position", "{X: %.2f, Y: %.2f, H: %.2f}", pos.getX(DistanceUnit.MM), pos.getY(DistanceUnit.MM), pos.getHeading(AngleUnit.DEGREES));
-            telemetry.update();
+            // Periodic telemetry update (every 100ms)
+            if (System.nanoTime() - lastTelemetryUpdate > 100_000_000) { // 100ms
+                Pose2D pos = odo.getPosition();
+                telemetry.addData("State", stateMachine);
+                telemetry.addData("Position", "{X: %.2f, Y: %.2f, H: %.2f}",
+                        pos.getX(DistanceUnit.MM),
+                        pos.getY(DistanceUnit.MM),
+                        pos.getHeading(AngleUnit.DEGREES));
+                telemetry.update();
+                lastTelemetryUpdate = System.nanoTime();
+            }
+
+            // Measure and log loop execution time
+            long loopDuration = System.nanoTime() - loopStartTime;
+            telemetry.addData("Loop Duration (ms)", loopDuration / 1e6);
         }
     }
 
@@ -196,4 +207,5 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         clawServo.setPosition(0); // Ensure the claw is fully open at the end
     }
 }
+
 
