@@ -1,10 +1,7 @@
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
-import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
-import com.qualcomm.robotcore.eventloop.opmode.OpMode;
-import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.Servo;
@@ -15,20 +12,14 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 
 import java.util.Locale;
 
-@Autonomous(name="Red Alliance B Place and Park", group="Autonomus")
-//@Disabled
-
+@Autonomous(name = "Red AllianceB Place and Park", group = "Autonomous")
 public class RedAllianceBPlaceAndPark extends LinearOpMode {
 
-    DcMotor leftFrontDrive;
-    DcMotor rightFrontDrive;
-    DcMotor leftBackDrive;
-    DcMotor rightBackDrive;
-    DcMotor ySliderMotor;
+    DcMotor leftFrontDrive, rightFrontDrive, leftBackDrive, rightBackDrive, ySliderMotor;
     Servo clawServo;
 
-    GoBildaPinpointDriver odo; // Declare OpMode member for the Odometry Computer
-    DriveToPoint nav = new DriveToPoint(this); //OpMode member for the point-to-point navigation class
+    GoBildaPinpointDriver odo; // Odometry object
+    DriveToPoint nav = new DriveToPoint(this); // Navigation object
 
     enum StateMachine {
         WAITING_FOR_START,
@@ -36,180 +27,167 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         DRIVE_TO_TARGET_1,
         SLIDER_UP,
         DRIVE_TO_TARGET_2,
-        SLIDER_DOWN,
-        OPEN_CLAW,
+        SLIDER_DOWN_AND_OPEN_CLAW,
         DRIVE_TO_TARGET_3,
-        DRIVE_TO_TARGET_4,
-        DRIVE_TO_TARGET_5,
         AT_TARGET
     }
 
-    static final Pose2D TARGET_1 = new Pose2D(DistanceUnit.MM,-800,0,AngleUnit.DEGREES,0);
-    static final Pose2D TARGET_2 = new Pose2D(DistanceUnit.MM, -50, 0, AngleUnit.DEGREES, 0);
-    static final Pose2D TARGET_3 = new Pose2D(DistanceUnit.MM,150,0, AngleUnit.DEGREES,0);
-    static final Pose2D TARGET_4 = new Pose2D(DistanceUnit.MM, 100, -2600, AngleUnit.DEGREES, -180);
-    static final Pose2D TARGET_5 = new Pose2D(DistanceUnit.MM, 100, 0, AngleUnit.DEGREES, 0);
-
-
+    static final Pose2D TARGET_1 = new Pose2D(DistanceUnit.MM, -560, 0, AngleUnit.DEGREES, 0);
+    static final Pose2D TARGET_2 = new Pose2D(DistanceUnit.MM, -670, 0, AngleUnit.DEGREES, 0);
+    static final Pose2D TARGET_3 = new Pose2D(DistanceUnit.MM, -100, 650, AngleUnit.DEGREES, 90);
 
     @Override
     public void runOpMode() {
-
-        // Initialize the hardware variables. Note that the strings used here must correspond
-        // to the names assigned during the robot configuration step on the DS or RC devices.
-
-        leftFrontDrive  = hardwareMap.get(DcMotor.class, "left_front");
+        // Initialize motors and servo
+        leftFrontDrive = hardwareMap.get(DcMotor.class, "left_front");
         rightFrontDrive = hardwareMap.get(DcMotor.class, "right_front");
-        leftBackDrive   = hardwareMap.get(DcMotor.class, "left_back");
-        rightBackDrive  = hardwareMap.get(DcMotor.class, "right_back");
+        leftBackDrive = hardwareMap.get(DcMotor.class, "left_back");
+        rightBackDrive = hardwareMap.get(DcMotor.class, "right_back");
         ySliderMotor = hardwareMap.get(DcMotor.class, "y_slider_motor");
         clawServo = hardwareMap.get(Servo.class, "Claw");
 
-        // Motor configurations
-        leftFrontDrive.setDirection(DcMotorSimple.Direction.FORWARD);
-        rightFrontDrive.setDirection(DcMotorSimple.Direction.REVERSE);
-        leftBackDrive.setDirection(DcMotorSimple.Direction.FORWARD);
-        rightBackDrive.setDirection(DcMotorSimple.Direction.REVERSE);
-
+        // Set motor behaviors
         leftFrontDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         rightFrontDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         leftBackDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         rightBackDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        ySliderMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
+        leftFrontDrive.setDirection(DcMotorSimple.Direction.REVERSE);
+        leftBackDrive.setDirection(DcMotorSimple.Direction.REVERSE);
 
-        odo = hardwareMap.get(GoBildaPinpointDriver.class,"odo");
-        odo.setOffsets(-90.0, -300.0); //these are tuned for 3110-0002-0001 Product Insight #1
+        // Initialize odometry
+        odo = hardwareMap.get(GoBildaPinpointDriver.class, "odo");
+        odo.setOffsets(-90.0, 300.0);
         odo.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         odo.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.REVERSED, GoBildaPinpointDriver.EncoderDirection.FORWARD);
 
-        odo.resetPosAndIMU();
-        //nav.setXYCoefficients(0.02,0.002,0.0,DistanceUnit.MM,12);
-        //nav.setYawCoefficients(1,0,0.0, AngleUnit.DEGREES,2);
         nav.setDriveType(DriveToPoint.DriveType.MECANUM);
 
-        StateMachine stateMachine;
-        stateMachine = StateMachine.WAITING_FOR_START;
+        StateMachine stateMachine = StateMachine.WAITING_FOR_START;
 
         telemetry.addData("Status", "Initialized");
-        telemetry.addData("X offset", odo.getXOffset());
-        telemetry.addData("Y offset", odo.getYOffset());
-        telemetry.addData("Device Version Number:", odo.getDeviceVersion());
-        telemetry.addData("Device Scalar", odo.getYawScalar());
         telemetry.update();
 
-        // Wait for the game to start (driver presses START)
+        // Wait for start signal
         waitForStart();
         resetRuntime();
 
         while (opModeIsActive()) {
-            odo.update(); // update odometry position
+            odo.update();
 
-            switch (stateMachine){
+            switch (stateMachine) {
                 case WAITING_FOR_START:
-                    //Drive to subversive
-                    stateMachine = StateMachine.DRIVE_TO_TARGET_1;
+                    odo.resetPosAndIMU(); // Initial reset and recalibration
+                    sleep(500); // Ensure stability
+                    stateMachine = StateMachine.CLOSE_CLAW;
                     break;
 
                 case CLOSE_CLAW:
-                    clawServo.setPosition(0.1); // Close the claw slightly
-                    telemetry.addLine("Claw closed slightly to hold specimen.");
-                    telemetry.update();
-                    sleep(500);
+                    clawServo.setPosition(0.5); // Close claw
+                    sleep(500); // Allow claw to close
                     stateMachine = StateMachine.DRIVE_TO_TARGET_1;
                     break;
 
                 case DRIVE_TO_TARGET_1:
-                    /*
-                    drive the robot to the first target, the nav.driveTo function will return true once
-                    the robot has reached the target, and has been there for (holdTime) seconds.
-                    Once driveTo returns true, it prints a telemetry line and moves the state machine forward.
-                     */
-                    if (nav.driveTo(odo.getPosition(), TARGET_1, 0.7, 0)){
-                        telemetry.addLine("at position #1!");
-                        telemetry.update();
+                    if (smoothDriveTo(TARGET_1, 0.5)) {
+                        telemetry.addLine("At position #1");
                         stateMachine = StateMachine.SLIDER_UP;
                     }
                     break;
+
                 case SLIDER_UP:
-                    moveSlider(150, 0.5, 2000); // Move the slider up by 150 mm
-                    telemetry.addLine("Slider moved up 150mm.");
-                    telemetry.update();
+                    moveSlider(130); // Move slider up 130mm
                     stateMachine = StateMachine.DRIVE_TO_TARGET_2;
                     break;
 
                 case DRIVE_TO_TARGET_2:
-                    //drive to the second target
-                    if (nav.driveTo(odo.getPosition(), TARGET_2, 0.7, 1)){
-                        telemetry.addLine("at position #2!");
-                        stateMachine = StateMachine.SLIDER_DOWN;
+                    if (smoothDriveTo(TARGET_2, 0.4)) {
+                        telemetry.addLine("At position #2");
+                        stateMachine = StateMachine.SLIDER_DOWN_AND_OPEN_CLAW;
                     }
                     break;
 
-                case SLIDER_DOWN:
-                    moveSlider(-50, 0.5, 2000); // Move the slider down by 50 mm
-                    telemetry.addLine("Slider moved down 50mm.");
-                    telemetry.update();
-                    stateMachine = StateMachine.OPEN_CLAW;
-                    break;
-
-                case OPEN_CLAW:
-                    clawServo.setPosition(0.8); // Open the claw to release the specimen
-                    telemetry.addLine("Claw opened to release specimen.");
-                    telemetry.update();
-                    sleep(500);
+                case SLIDER_DOWN_AND_OPEN_CLAW:
+                    moveSliderAndOpenClaw(-30); // Move slider down and open claw simultaneously
+                    sleep(2000); // Wait for placement to finish
                     stateMachine = StateMachine.DRIVE_TO_TARGET_3;
                     break;
 
                 case DRIVE_TO_TARGET_3:
-                    if(nav.driveTo(odo.getPosition(), TARGET_3, 0.7, 3)){
-                        telemetry.addLine("at position #3");
-                        stateMachine = StateMachine.DRIVE_TO_TARGET_4;
-                    }
-                    break;
-                case DRIVE_TO_TARGET_4:
-                    if(nav.driveTo(odo.getPosition(),TARGET_4,0.7,1)){
-                        telemetry.addLine("at position #4");
-                        stateMachine = StateMachine.DRIVE_TO_TARGET_5;
-                    }
-                    break;
-                case DRIVE_TO_TARGET_5:
-                    if(nav.driveTo(odo.getPosition(),TARGET_5,0.7,1)){
-                        telemetry.addLine("There!");
+                    if (smoothDriveTo(TARGET_3, 0.5)) {
+                        telemetry.addLine("At position #3");
                         stateMachine = StateMachine.AT_TARGET;
                     }
                     break;
 
                 case AT_TARGET:
-                    telemetry.addLine("All tasks completed!");
-                    telemetry.update();
+                    telemetry.addLine("Autonomous Complete!");
                     break;
+
+                default:
+                    telemetry.addLine("Unknown State");
             }
 
-            //nav calculates the power to set to each motor in a mecanum or tank drive. Use nav.getMotorPower to find that value.
-            leftFrontDrive.setPower(nav.getMotorPower(DriveToPoint.DriveMotor.LEFT_FRONT));
-            rightFrontDrive.setPower(nav.getMotorPower(DriveToPoint.DriveMotor.RIGHT_FRONT));
-            leftBackDrive.setPower(nav.getMotorPower(DriveToPoint.DriveMotor.LEFT_BACK));
-            rightBackDrive.setPower(nav.getMotorPower(DriveToPoint.DriveMotor.RIGHT_BACK));
-
+            // Telemetry
             Pose2D pos = odo.getPosition();
-            telemetry.addData("Position", String.format(Locale.US, "{X: %.3f, Y: %.3f, H: %.3f}",
-                    pos.getX(DistanceUnit.MM), pos.getY(DistanceUnit.MM), pos.getHeading(AngleUnit.DEGREES)));
             telemetry.addData("State", stateMachine);
+            telemetry.addData("Position", "{X: %.2f, Y: %.2f, H: %.2f}", pos.getX(DistanceUnit.MM), pos.getY(DistanceUnit.MM), pos.getHeading(AngleUnit.DEGREES));
             telemetry.update();
         }
     }
 
-    private void moveSlider(int distance, double power, long timeoutMs) {
-        ySliderMotor.setTargetPosition(distance);
-        ySliderMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        ySliderMotor.setPower(power);
+    private boolean smoothDriveTo(Pose2D target, double maxSpeed) {
+        Pose2D currentPos = odo.getPosition();
+        double distanceRemaining = Math.hypot(
+                target.getX(DistanceUnit.MM) - currentPos.getX(DistanceUnit.MM),
+                target.getY(DistanceUnit.MM) - currentPos.getY(DistanceUnit.MM)
+        );
 
-        long startTime = System.currentTimeMillis();
-        while (ySliderMotor.isBusy() && opModeIsActive() && (System.currentTimeMillis() - startTime < timeoutMs)) {
-            telemetry.addData("Slider", "Moving to position: %d", distance);
-            telemetry.update();
+        double totalDistance = 1000; // Example total distance (update with actual logic)
+        double motorPower = calculateMotorPower(maxSpeed, distanceRemaining, totalDistance);
+
+        leftFrontDrive.setPower(motorPower);
+        rightFrontDrive.setPower(motorPower);
+        leftBackDrive.setPower(motorPower);
+        rightBackDrive.setPower(motorPower);
+
+        return distanceRemaining < 10; // Stop condition when near the target
+    }
+
+    private double calculateMotorPower(double maxPower, double distanceRemaining, double totalDistance) {
+        if (distanceRemaining > totalDistance * 0.7) {
+            // Acceleration phase
+            return maxPower * ((totalDistance - distanceRemaining) / (totalDistance * 0.3));
+        } else if (distanceRemaining < totalDistance * 0.3) {
+            // Deceleration phase
+            return maxPower * (distanceRemaining / (totalDistance * 0.3));
+        } else {
+            // Constant speed phase
+            return maxPower;
+        }
+    }
+
+    private void moveSlider(int mm) {
+        int ticks = (int) (mm * 10); // Example conversion factor
+        ySliderMotor.setTargetPosition(ySliderMotor.getCurrentPosition() + ticks);
+        ySliderMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        ySliderMotor.setPower(0.5); // Adjust power for smooth motion
+        while (ySliderMotor.isBusy() && opModeIsActive()) {
+            // Wait for the motor to reach the position
         }
         ySliderMotor.setPower(0);
-        ySliderMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    }
+
+    private void moveSliderAndOpenClaw(int mm) {
+        int ticks = (int) (mm * 10); // Example conversion factor
+        ySliderMotor.setTargetPosition(ySliderMotor.getCurrentPosition() + ticks);
+        ySliderMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        ySliderMotor.setPower(0.5); // Adjust power for smooth motion
+        clawServo.setPosition(0); // Open claw while moving slider down
+        while (ySliderMotor.isBusy() && opModeIsActive()) {
+            // Wait for slider to move down
+        }
+        ySliderMotor.setPower(0);
     }
 }
