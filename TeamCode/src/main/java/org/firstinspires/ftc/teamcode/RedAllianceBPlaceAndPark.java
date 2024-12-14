@@ -6,21 +6,37 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.Servo;
 
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-
-import java.util.Locale;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 
 @Autonomous(name = "Red AllianceB Place and Park", group = "Autonomous")
 public class RedAllianceBPlaceAndPark extends LinearOpMode {
 
+    // Motors and servo
     DcMotor leftFrontDrive, rightFrontDrive, leftBackDrive, rightBackDrive, ySliderMotor;
     Servo clawServo;
 
-    GoBildaPinpointDriver odo; // Odometry object
-    DriveToPoint nav = new DriveToPoint(this); // Navigation object
+    // Feedforward constants (example values, tune as needed)
+    public static final double kV = 0.017; // Velocity constant
+    public static final double kA = 0.002; // Acceleration constant
+    public static final double kStatic = 0.1; // Static constant
 
+    // PID coefficients for error correction (example values, tune as needed)
+    public static final double kP = 0.02, kI = 0.0, kD = 0.01;
+
+    // Maximum power and distances
+    public static final double MAX_POWER = 0.7;
+
+    // Odometry and navigation
+    GoBildaPinpointDriver odo;
+
+    // Target poses
+    static final Pose2D TARGET_1 = new Pose2D(DistanceUnit.MM, -560, 0, AngleUnit.DEGREES, 0);
+    static final Pose2D TARGET_2 = new Pose2D(DistanceUnit.MM, -670, 0, AngleUnit.DEGREES, 0);
+    static final Pose2D TARGET_3 = new Pose2D(DistanceUnit.MM, -100, 650, AngleUnit.DEGREES, 90);
+
+    // State machine for managing autonomous sequence
     enum StateMachine {
         WAITING_FOR_START,
         CLOSE_CLAW,
@@ -32,13 +48,9 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         AT_TARGET
     }
 
-    static final Pose2D TARGET_1 = new Pose2D(DistanceUnit.MM, -560, 0, AngleUnit.DEGREES, 0);
-    static final Pose2D TARGET_2 = new Pose2D(DistanceUnit.MM, -670, 0, AngleUnit.DEGREES, 0);
-    static final Pose2D TARGET_3 = new Pose2D(DistanceUnit.MM, -100, 650, AngleUnit.DEGREES, 90);
-
     @Override
-    public void runOpMode() {
-        // Initialize motors and servo
+    public void runOpMode() throws InterruptedException {
+        // Hardware initialization
         leftFrontDrive = hardwareMap.get(DcMotor.class, "left_front");
         rightFrontDrive = hardwareMap.get(DcMotor.class, "right_front");
         leftBackDrive = hardwareMap.get(DcMotor.class, "left_back");
@@ -46,7 +58,7 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         ySliderMotor = hardwareMap.get(DcMotor.class, "y_slider_motor");
         clawServo = hardwareMap.get(Servo.class, "Claw");
 
-        // Set motor behaviors
+        // Configure motor directions and braking
         leftFrontDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         rightFrontDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         leftBackDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -56,156 +68,144 @@ public class RedAllianceBPlaceAndPark extends LinearOpMode {
         leftFrontDrive.setDirection(DcMotorSimple.Direction.REVERSE);
         leftBackDrive.setDirection(DcMotorSimple.Direction.REVERSE);
 
-        // Initialize odometry
+        // Odometry initialization
         odo = hardwareMap.get(GoBildaPinpointDriver.class, "odo");
         odo.setOffsets(-90.0, 300.0);
-        odo.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
-        odo.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.REVERSED, GoBildaPinpointDriver.EncoderDirection.FORWARD);
-
-        nav.setDriveType(DriveToPoint.DriveType.MECANUM);
-
-        StateMachine stateMachine = StateMachine.WAITING_FOR_START;
-
-        long lastTelemetryUpdate = System.nanoTime();
 
         telemetry.addData("Status", "Initialized");
         telemetry.update();
 
-        // Wait for start signal
+        // Wait for start
         waitForStart();
-        resetRuntime();
+
+        // State machine logic
+        StateMachine stateMachine = StateMachine.WAITING_FOR_START;
 
         while (opModeIsActive()) {
-            long loopStartTime = System.nanoTime();
-
-            // High-priority odometry update
-            odo.update();
+            odo.update(); // Update odometry data
 
             switch (stateMachine) {
                 case WAITING_FOR_START:
-                    odo.resetPosAndIMU(); // Initial reset and recalibration
-                    sleep(500); // Ensure stability
+                    odo.resetPosAndIMU(); // Reset odometry and IMU
                     stateMachine = StateMachine.CLOSE_CLAW;
                     break;
 
                 case CLOSE_CLAW:
                     clawServo.setPosition(0.5); // Close claw
-                    sleep(500); // Allow claw to close
+                    sleep(500);
                     stateMachine = StateMachine.DRIVE_TO_TARGET_1;
                     break;
 
                 case DRIVE_TO_TARGET_1:
-                    if (smoothDriveTo(TARGET_1, 0.5)) {
+                    if (moveToTarget(TARGET_1)) {
                         stateMachine = StateMachine.SLIDER_UP;
                     }
                     break;
 
                 case SLIDER_UP:
-                    moveSlider(130); // Move slider up 130mm
+                    moveSlider(130); // Move slider up
                     stateMachine = StateMachine.DRIVE_TO_TARGET_2;
                     break;
 
                 case DRIVE_TO_TARGET_2:
-                    if (smoothDriveTo(TARGET_2, 0.4)) {
+                    if (moveToTarget(TARGET_2)) {
                         stateMachine = StateMachine.SLIDER_DOWN_AND_OPEN_CLAW;
                     }
                     break;
 
                 case SLIDER_DOWN_AND_OPEN_CLAW:
-                    moveSliderAndOpenClaw(-30); // Simultaneous slider movement and claw opening
+                    moveSliderAndOpenClaw(-30);
                     stateMachine = StateMachine.DRIVE_TO_TARGET_3;
                     break;
 
                 case DRIVE_TO_TARGET_3:
-                    if (smoothDriveTo(TARGET_3, 0.5)) {
+                    if (moveToTarget(TARGET_3)) {
                         stateMachine = StateMachine.AT_TARGET;
                     }
                     break;
 
                 case AT_TARGET:
+                    telemetry.addLine("Autonomous Complete!");
+                    telemetry.update();
                     break;
-
-                default:
-                    telemetry.addLine("Unknown State");
             }
 
-            // Periodic telemetry update (every 100ms)
-            if (System.nanoTime() - lastTelemetryUpdate > 100_000_000) { // 100ms
-                Pose2D pos = odo.getPosition();
-                telemetry.addData("State", stateMachine);
-                telemetry.addData("Position", "{X: %.2f, Y: %.2f, H: %.2f}",
-                        pos.getX(DistanceUnit.MM),
-                        pos.getY(DistanceUnit.MM),
-                        pos.getHeading(AngleUnit.DEGREES));
-                telemetry.update();
-                lastTelemetryUpdate = System.nanoTime();
-            }
-
-            // Measure and log loop execution time
-            long loopDuration = System.nanoTime() - loopStartTime;
-            telemetry.addData("Loop Duration (ms)", loopDuration / 1e6);
+            // Update telemetry with state and position
+            Pose2D currentPose = odo.getPosition();
+            telemetry.addData("State", stateMachine);
+            telemetry.addData("Position", "{X: %.2f, Y: %.2f, H: %.2f}",
+                    currentPose.getX(DistanceUnit.MM),
+                    currentPose.getY(DistanceUnit.MM),
+                    currentPose.getHeading(AngleUnit.DEGREES));
+            telemetry.update();
         }
     }
 
-    private boolean smoothDriveTo(Pose2D target, double maxSpeed) {
-        Pose2D currentPos = odo.getPosition();
-        double distanceRemaining = Math.hypot(
-                target.getX(DistanceUnit.MM) - currentPos.getX(DistanceUnit.MM),
-                target.getY(DistanceUnit.MM) - currentPos.getY(DistanceUnit.MM)
-        );
+    private boolean moveToTarget(Pose2D targetPose) {
+        Pose2D currentPose = odo.getPosition();
 
-        double totalDistance = 1000; // Example total distance (update with actual logic)
-        double motorPower = calculateMotorPower(maxSpeed, distanceRemaining, totalDistance);
+        // Calculate positional error
+        double xError = targetPose.getX(DistanceUnit.MM) - currentPose.getX(DistanceUnit.MM);
+        double yError = targetPose.getY(DistanceUnit.MM) - currentPose.getY(DistanceUnit.MM);
+        double headingError = targetPose.getHeading(AngleUnit.DEGREES) - currentPose.getHeading(AngleUnit.DEGREES);
 
-        leftFrontDrive.setPower(motorPower);
-        rightFrontDrive.setPower(motorPower);
-        leftBackDrive.setPower(motorPower);
-        rightBackDrive.setPower(motorPower);
+        // Calculate distance to target
+        double distanceRemaining = Math.hypot(xError, yError);
 
-        return distanceRemaining < 10; // Stop condition when near the target
-    }
+        // PID control for error correction
+        double xCorrection = kP * xError;
+        double yCorrection = kP * yError;
+        double headingCorrection = kP * headingError;
 
-    private double calculateMotorPower(double maxPower, double distanceRemaining, double totalDistance) {
-        if (distanceRemaining > totalDistance * 0.7) {
-            // Acceleration phase
-            return maxPower * ((totalDistance - distanceRemaining) / (totalDistance * 0.3));
-        } else if (distanceRemaining < totalDistance * 0.3) {
-            // Deceleration phase
-            return maxPower * (distanceRemaining / (totalDistance * 0.3));
-        } else {
-            // Constant speed phase
-            return maxPower;
-        }
+        // Feedforward control
+        double velocity = distanceRemaining * kV;
+        double acceleration = kA * velocity;
+
+        double power = velocity + acceleration + kStatic;
+        power = Math.min(power, MAX_POWER); // Limit power to max
+
+        // Combine corrections and power
+        double leftFrontPower = power + xCorrection - headingCorrection;
+        double rightFrontPower = power - xCorrection - headingCorrection;
+        double leftBackPower = power + yCorrection + headingCorrection;
+        double rightBackPower = power - yCorrection + headingCorrection;
+
+        // Set motor powers
+        leftFrontDrive.setPower(leftFrontPower);
+        rightFrontDrive.setPower(rightFrontPower);
+        leftBackDrive.setPower(leftBackPower);
+        rightBackDrive.setPower(rightBackPower);
+
+        // Stop condition
+        return distanceRemaining < 10; // Stop when close to target
     }
 
     private void moveSlider(int mm) {
-        int ticks = (int) (mm * 10); // Example conversion factor
+        int ticks = mm * 10; // Conversion
         ySliderMotor.setTargetPosition(ySliderMotor.getCurrentPosition() + ticks);
         ySliderMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        ySliderMotor.setPower(0.5); // Adjust power for smooth motion
-        while (ySliderMotor.isBusy() && opModeIsActive()) {
-            // Wait for the motor to reach the position
-        }
+        ySliderMotor.setPower(0.5);
+        while (ySliderMotor.isBusy() && opModeIsActive());
         ySliderMotor.setPower(0);
     }
 
     private void moveSliderAndOpenClaw(int mm) {
-        int ticks = (int) (mm * 10); // Convert mm to encoder ticks
-        int targetPosition = ySliderMotor.getCurrentPosition() + ticks;
-
-        ySliderMotor.setTargetPosition(targetPosition);
+        int ticks = mm * 10;
+        ySliderMotor.setTargetPosition(ySliderMotor.getCurrentPosition() + ticks);
         ySliderMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        ySliderMotor.setPower(0.5); // Adjust power for smooth motion
+        ySliderMotor.setPower(0.5);
 
-        // Gradually open the claw as the slider moves down
         while (ySliderMotor.isBusy() && opModeIsActive()) {
-            double sliderProgress = (double) (targetPosition - ySliderMotor.getCurrentPosition()) / ticks;
-            clawServo.setPosition(0.5 - (0.5 * sliderProgress)); // Adjust claw position based on slider progress
+            double progress = (ySliderMotor.getCurrentPosition() / (double) ticks);
+            clawServo.setPosition(0.5 - (0.5 * progress));
         }
-
         ySliderMotor.setPower(0);
-        clawServo.setPosition(0); // Ensure the claw is fully open at the end
+        clawServo.setPosition(0);
     }
 }
+
+
+
+
 
 
